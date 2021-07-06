@@ -57,6 +57,7 @@ let package = Package(
       dependencies: [
         .product(name: "NIO", package: "swift-nio"),
         .product(name: "NIOFoundationCompat", package: "swift-nio"),
+        .product(name: "_NIOConcurrency", package: "swift-nio"),
         .product(name: "NIOTransportServices", package: "swift-nio-transport-services"),
         .product(name: "NIOHTTP1", package: "swift-nio"),
         .product(name: "NIOHTTP2", package: "swift-nio-http2"),
@@ -65,6 +66,9 @@ let package = Package(
         .product(name: "SwiftProtobuf", package: "SwiftProtobuf"),
         .product(name: "Logging", package: "swift-log"),
         .target(name: "CGRPCZlib"),
+      ],
+      swiftSettings: [
+          .unsafeFlags(["-Xfrontend", "-enable-experimental-concurrency"])
       ]
     ), // and its tests.
     .testTarget(
@@ -76,6 +80,9 @@ let package = Package(
         .target(name: "GRPCSampleData"),
         .target(name: "GRPCInteroperabilityTestsImplementation"),
         .target(name: "HelloWorldModel"),
+      ],
+      swiftSettings: [
+          .unsafeFlags(["-Xfrontend", "-enable-experimental-concurrency"])
       ]
     ),
 
@@ -167,6 +174,26 @@ let package = Package(
       path: "Sources/Examples/Echo/Runtime"
     ),
 
+    // Echo example CLI using async/await.
+    .target(
+      name: "AsyncEcho",
+      dependencies: [
+        .target(name: "EchoModel"),
+        .target(name: "EchoImplementation"),
+        .target(name: "GRPC"),
+        .target(name: "GRPCSampleData"),
+        .product(name: "SwiftProtobuf", package: "SwiftProtobuf"),
+        .product(name: "ArgumentParser", package: "swift-argument-parser"),
+      ],
+      path: "Sources/Examples/Echo/AsyncAwaitRuntime",
+      swiftSettings: [
+          .unsafeFlags([
+            "-Xfrontend", "-enable-experimental-concurrency",
+            "-Xfrontend", "-parse-as-library",
+          ])
+      ]
+    ),
+
     // Echo example service implementation.
     .target(
       name: "EchoImplementation",
@@ -184,6 +211,7 @@ let package = Package(
       dependencies: [
         .target(name: "GRPC"),
         .product(name: "NIO", package: "swift-nio"),
+        .product(name: "_NIOConcurrency", package: "swift-nio"),
         .product(name: "SwiftProtobuf", package: "SwiftProtobuf"),
       ],
       path: "Sources/Examples/Echo/Model"

@@ -1,0 +1,116 @@
+import Logging
+import NIO
+import NIOHPACK
+import NIOHTTP2
+
+/// Async-await variant of `ClientStreamingCall`.
+public struct AsyncClientStreamingCall<RequestPayload, ResponsePayload>: AsyncStreamingRequestClientCall,
+  AsyncUnaryResponseClientCall {
+  private let call: Call<RequestPayload, ResponsePayload>
+  private let responseParts: UnaryResponseParts<ResponsePayload>
+
+  /// The options used to make the RPC.
+  public var options: CallOptions {
+    return self.call.options
+  }
+
+  /// The `Channel` used to transport messages for this RPC.
+  public var subchannel: Channel {
+    get async throws {
+      try await self.call.channel.get()
+    }
+  }
+
+  /// Cancel this RPC if it hasn't already completed.
+  public func cancel() async throws {
+    try await self.call.cancel().get()
+  }
+
+  // MARK: - Response Parts
+
+  /// The initial metadata returned from the server.
+  public var initialMetadata: HPACKHeaders {
+    get async throws {
+      try await self.responseParts.initialMetadata.get()
+    }
+  }
+
+  /// The response returned by the server.
+  public var response: ResponsePayload {
+    get async throws {
+      try await self.responseParts.response.get()
+    }
+  }
+
+  /// The trailing metadata returned from the server.
+  public var trailingMetadata: HPACKHeaders {
+    get async throws {
+      try await self.responseParts.trailingMetadata.get()
+    }
+  }
+
+  /// The final status of the the RPC.
+  public var status: GRPCStatus {
+    get async {
+      try! await self.responseParts.status.get()
+    }
+  }
+
+  internal init(call: Call<RequestPayload, ResponsePayload>) {
+    self.call = call
+    self.responseParts = UnaryResponseParts(on: call.eventLoop)
+  }
+
+  internal func invoke() {
+    self.call.invokeStreamingRequests(
+      onError: self.responseParts.handleError(_:),
+      onResponsePart: self.responseParts.handle(_:)
+    )
+  }
+
+  // MARK: - Requests
+
+  /// Sends a message to the service.
+  ///
+  /// - Important: Callers must terminate the stream of messages by calling `sendEnd()`.
+  ///
+  /// - Parameters:
+  ///   - message: The message to send.
+  ///   - compression: Whether compression should be used for this message. Ignored if compression
+  ///     was not enabled for the RPC.
+  public func sendMessage(
+    _ message: RequestPayload,
+    compression: Compression = .deferToCallDefault
+  ) async throws {
+    let compress = self.call.compress(compression)
+    let promise = self.call.eventLoop.makePromise(of: Void.self)
+    self.call.send(.message(message, .init(compress: compress, flush: true)), promise: promise)
+    try await promise.futureResult.get()
+  }
+
+  /// Sends a sequence of messages to the service.
+  ///
+  /// - Important: Callers must terminate the stream of messages by calling `sendEnd()`.
+  ///
+  /// - Parameters:
+  ///   - messages: The sequence of messages to send.
+  ///   - compression: Whether compression should be used for this message. Ignored if compression
+  ///     was not enabled for the RPC.
+  public func sendMessages<S>(
+    _ messages: S,
+    compression: Compression = .deferToCallDefault
+  ) async throws where S: Sequence, S.Element == RequestPayload {
+    let promise = self.call.eventLoop.makePromise(of: Void.self)
+    self.call.sendMessages(messages, compression: compression, promise: promise)
+    try await promise.futureResult.get()
+  }
+
+  /// Terminates a stream of messages sent to the service.
+  ///
+  /// - Important: This should only ever be called once.
+  public func sendEnd() async throws {
+    let promise = self.call.eventLoop.makePromise(of: Void.self)
+    self.call.send(.end, promise: promise)
+    try await promise.futureResult.get()
+  }
+}
